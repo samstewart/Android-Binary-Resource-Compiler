@@ -1,0 +1,224 @@
+#! /bin/bash
+
+# Author:   Ken Ellinwood (kellinwood)
+# Version   1.0
+# Support:  http://forum.xda-developers.com/showthread.php?t=785012
+
+function usage()
+{
+    cat <<EOF
+USAGE:
+abrc usage
+abrc help 
+abrc [options] compile <project dir> <output dir> <resource file1> <resource file2> ...
+abrc [options] setup <project dir>
+
+OPTIONS:
+
+-v    Enable verbose output
+-o    Overwrite files without prompting
+EOF
+
+    if [ -z "$be_verbose" ]; then
+        exit 1
+    fi
+
+cat <<EOF
+
+Android Binary Resource Compiler (abrc).  This is a command-line
+script to compile resources such as NinePatch PNGs and layout XML
+files to Android binary format.  The compiled resources named in the
+command are extracted and saved out into a separate location.  This
+script was developed as an alternative to using Eclipse and "unzip" to
+compile and extract NinePatch PNGs during the creationg of custom
+Android UI themes.
+
+COMPILE
+
+The compile operation compiles the resources in the <project dir>
+location.  This can be any Android Eclipse project directory which
+contains the resources you wish to compile and extract.  You can also
+use this script's "setup" syntax to create a minimal project without
+using Eclipse.  See the SETUP section below for more information.
+
+The named resource files <resource file1> <resource file2, etc., are
+then extracted into the <output directory>.  Parent path components in
+the resource file names are preserved and also determine the extracted
+location within the output directory.
+
+Example:
+
+Consider the following path in "MyProject" which contains, among other
+things, the statusbar_background.9.png file.  This file is in the format
+created by draw9patch program.
+
+MyProject/res/drawable-mdpi/statusbar_background.9.png
+
+The following command compiles the resources in MyProject and writes
+the output to the MyTheme/framework-res directory using the leading
+path components of the specified resource file(s).  I.e., In this
+example the resulting output file is
+MyTheme/framework-res/res/drawable-mdpi/statusbar_background.9.png
+
+abrc compile MyProject MyTheme/framework-res res/drawable-mdpi/statusbar_background.9.png
+
+SETUP
+
+The setup operation is completely optional.  It creates a minimal
+project skeleton for compiling resources.  Eclipse projects can also
+be used in the compile step above.
+
+abrc setup MyProject
+
+The above command creates the following directory structure/files:
+
+MyProject/res/drawable
+MyProject/res/drawable-mdpi
+MyProject/res/drawable-hdpi
+MyProject/res/layout
+MyProject/AndroidManifest.xml
+
+Copy your resources into the appropriate location within the project
+and then use the compile operation to compile and extract the binary
+files.
+
+EOF
+    exit 1
+}
+
+
+abrc_compile() {
+    
+    if [ $# -lt 3 ]; then
+        echo "Invalid arguments for compile"
+        usage
+    fi
+
+    # Figure out where the Android SDK is located.  Looking for 'adb' in $PATH to find out.
+    ANDROID_SDK=`which adb 2>&1`
+    if [ $? -ne 0 ]; then 
+        echo "Unable to determine location of Android SDK.  Is adb in your PATH?"
+        exit 1
+    fi
+    ANDROID_SDK=`dirname $ANDROID_SDK`
+    ANDROID_SDK=`dirname $ANDROID_SDK`
+    
+    # Figure out which platform in the SDK to use.  If aapt is in the
+    # PATH then we'll use that, otherwise the highest version platform
+    # is used.
+    PLATFORM_SDK=`which aapt 2>&1`
+    if [ $? -ne 0 ]; then 
+        # Aapt is not in the PATH.  Use the highest numbered platform installed.
+        PLATFORM_SDK=$ANDROID_SDK/platforms/`ls -1 $ANDROID_SDK/platforms | sort --numeric-sort --reverse --field-separator=- --key=2 | head -n 1`
+    else
+        PLATFORM_SDK=`dirname $PLATFORM_SDK`
+        PLATFORM_SDK=`dirname $PLATFORM_SDK`
+    fi
+    
+    
+    PROJECT_DIR=$1
+    shift
+    
+    OUTPUT_DIR=$1
+    shift
+
+    # Send the compiled resources to a temporary zip.
+    RESOURCE_ZIP=`mktemp -u /tmp/resources-XXXXXXXXXX`.zip
+    
+    echo "Using aapt to compile resources to $RESOURCE_ZIP"
+    $PLATFORM_SDK/tools/aapt package -f -M $PROJECT_DIR/AndroidManifest.xml -F $RESOURCE_ZIP -S $PROJECT_DIR/res -I $PLATFORM_SDK/android.jar
+    # Exit on failure
+    if [ $? -ne 0 ]; then exit 1; fi
+
+    # Unzip the named resource files.
+    if [ "$do_overwrite" = "1" ]; then
+        OFLAG=-o
+    else
+        unset OFLAG
+    fi
+    
+    unzip $OFLAG -d $OUTPUT_DIR $RESOURCE_ZIP $*
+    rm -rf $RESOURCE_ZIP
+
+}
+
+function abrc_setup()
+{
+   if [ $# -ne 1 ]; then
+        echo "Invalid arguments for setup"
+        usage
+    fi
+
+    PROJECT_DIR=$1
+    shift
+
+    mkdir --parents $PROJECT_DIR/res/drawable
+    mkdir --parents $PROJECT_DIR/res/drawable-mdpi
+    mkdir --parents $PROJECT_DIR/res/drawable-hdpi
+    mkdir --parents $PROJECT_DIR/res/layout
+    
+    if [ -e $PROJECT_DIR/AndroidManifest.xml ]; then
+        if [ "$do_overwrite" != "1" ]; then
+            read -p "Overwrite $PROJECT_DIR/AndroidManifest.xml [y/n]?"
+            if [ "$REPLY" != "y" ]; then
+                echo "$PROJECT_DIR/AndroidManifest.xml was left unchanged"
+                exit 0
+            fi
+        fi
+    fi
+        
+        cat >$PROJECT_DIR/AndroidManifest.xml <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+      package="org.abrc.scaffolding"
+      android:versionCode="1"
+      android:versionName="1.0">
+</manifest> 
+EOF
+ 
+}
+
+function main()
+{
+    # Mininum of one argument is required
+    if [ $# -lt 1 ]; then
+        usage
+    fi
+
+    # Parse options.
+    be_verbose=
+    do_overwrite=
+    while getopts 'voh' OPTION
+    do
+        case $OPTION in
+            v)  be_verbose=1
+                ;;
+            o)  do_overwrite=1
+                ;;
+            ?)  usage
+                ;;
+        esac
+    done
+    shift $(($OPTIND - 1))
+
+
+    # Switch on the named operation
+    operation=$1
+    shift
+
+    if [ "$operation" = "compile" ]; then
+        abrc_compile $*
+    elif [ "$operation" = "setup" ]; then
+        abrc_setup $*
+    elif [ "$operation" = "usage" ]; then
+        usage
+    elif [ "$operation" = "help" ]; then
+        be_verbose=1
+        usage
+    else
+        echo "Unknown operation: $operation"
+        usage
+    fi
+}
+
+main $*
