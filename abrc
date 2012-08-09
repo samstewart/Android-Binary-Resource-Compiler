@@ -106,15 +106,8 @@ abrc_compile() {
     # Figure out which platform in the SDK to use.  If aapt is in the
     # PATH then we'll use that, otherwise the highest version platform
     # is used.
-    PLATFORM_SDK=`which aapt 2>&1`
-    if [ $? -ne 0 ]; then 
-        # Aapt is not in the PATH.  Use the highest numbered platform installed.
-        PLATFORM_SDK=$ANDROID_SDK/platforms/`ls -1 $ANDROID_SDK/platforms | sort --numeric-sort --reverse --field-separator=- --key=2 | head -n 1`
-    else
-        PLATFORM_SDK=`dirname $PLATFORM_SDK`
-        PLATFORM_SDK=`dirname $PLATFORM_SDK`
-    fi
-    
+    PLATFORM_SDK=$ANDROID_SDK/platforms/`ls -1 $ANDROID_SDK/platforms | sort --numeric-sort --reverse --field-separator=- --key=2 | head -n 1`
+
     
     PROJECT_DIR=$1
     shift
@@ -126,7 +119,7 @@ abrc_compile() {
     RESOURCE_ZIP=`mktemp -u /tmp/resources-XXXXXXXXXX`.zip
     
     echo "Using aapt to compile resources to $RESOURCE_ZIP"
-    $PLATFORM_SDK/tools/aapt package -f -M $PROJECT_DIR/AndroidManifest.xml -F $RESOURCE_ZIP -S $PROJECT_DIR/res -I $PLATFORM_SDK/android.jar
+    $ANDROID_SDK/platform-tools/aapt package -f -M $PROJECT_DIR/AndroidManifest.xml -F $RESOURCE_ZIP -S $PROJECT_DIR/res -I $PLATFORM_SDK/android.jar
     # Exit on failure
     if [ $? -ne 0 ]; then exit 1; fi
 
